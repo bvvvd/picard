@@ -24,10 +24,12 @@
 
 package picard.illumina.parser;
 
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.samtools.util.Log;
 import htsjdk.samtools.util.StringUtil;
 import picard.PicardException;
 import picard.illumina.ExtractIlluminaBarcodes.BarcodeMetric;
+import picard.illumina.NewIlluminaBasecallsConverter;
 import picard.illumina.parser.IlluminaFileUtil.SupportedIlluminaFormat;
 import picard.illumina.parser.readers.AbstractIlluminaPositionFileReader;
 import picard.illumina.parser.readers.BclQualityEvaluationStrategy;
@@ -44,9 +46,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static htsjdk.samtools.util.CollectionUtil.makeList;
 import static htsjdk.samtools.util.CollectionUtil.makeSet;
+import static picard.illumina.NewIlluminaBasecallsConverter.getTiledFiles;
 
 /**
  * IlluminaDataProviderFactory accepts options for parsing Illumina data files for a lane and creates an
@@ -113,7 +118,7 @@ public class IlluminaDataProviderFactory {
     private final IlluminaFileUtil fileUtil;
 
 
-    private final List<Integer> availableTiles;
+    private List<Integer> availableTiles;
 
     private final OutputMapping outputMapping;
     private final BclQualityEvaluationStrategy bclQualityEvaluationStrategy;
@@ -201,7 +206,25 @@ public class IlluminaDataProviderFactory {
         this.formatToDataTypes = null;
         this.availableTiles = null;
         this.fileUtil = null;
+
         outputMapping = new OutputMapping(readStructure);
+
+        Pattern laneTileRegex = Pattern.compile(ParameterizedFileUtil.escapePeriods(
+                ParameterizedFileUtil.makeLaneTileRegex(".filter", lane)));
+        File laneDir = new File(basecallDirectory, IlluminaFileUtil.longLaneStr(lane));
+
+        List<Integer> tiles = new ArrayList<>();
+        File[] filterFiles = getTiledFiles(laneDir, laneTileRegex);
+        for (File filterFile : filterFiles) {
+            Matcher tileMatcher = laneTileRegex.matcher(filterFile.getName());
+            if (tileMatcher.matches()) {
+                tiles.add(Integer.valueOf(tileMatcher.group(1)));
+            }
+        }
+
+        IOUtil.assertFilesAreReadable(Arrays.asList(filterFiles));
+        tiles.sort(NewIlluminaBasecallsConverter.TILE_NUMBER_COMPARATOR);
+        availableTiles = tiles;
     }
 
     /**

@@ -72,18 +72,21 @@ public class CbclReader extends BaseBclReader implements CloseableIterator<CbclD
     private Iterator<AbstractIlluminaPositionFileReader.PositionInfo> positionInfoIterator;
     private final CycleData[] cycleData;
     private final Map<Integer, File> filterFileMap;
-    private final Map<Integer, boolean[]> cachedFilter = new HashMap<>();
+    private final Map<Integer, List<Boolean>> cachedFilter = new HashMap<>();
     private final Map<Integer, Map<Integer, File>> surfaceToTileToCbclMap;
     private int headerSize;
     private Map<Integer, List<TileData>> allTiles = new HashMap<>();
+    private final int[] outputCycles;
 
     private static final int INITIAL_HEADER_SIZE = 6;
     private static final Log log = Log.getInstance(CbclReader.class);
-    public static final Pattern PATTERN = Pattern.compile("^.+C(\\d{1,4}).+L(\\d{1,3})_(\\d).cbcl$");
+    private static final Pattern PATTERN = Pattern.compile("^.+C(\\d{1,4}).+L(\\d{1,3})_(\\d).cbcl$");
 
     public CbclReader(final List<File> cbcls, final Map<Integer, File> filterFileMap, final int[] outputLengths,
-                      int tileNum, List<AbstractIlluminaPositionFileReader.PositionInfo> locs, boolean headerOnly) {
+                      int tileNum, List<AbstractIlluminaPositionFileReader.PositionInfo> locs, int[] outputCycles, boolean headerOnly) {
         super(outputLengths);
+        this.outputCycles = outputCycles;
+
         surfaceToTileToCbclMap = sortCbcls(cbcls);
         this.filterFileMap = filterFileMap;
         cycleData = new CycleData[cycles];
@@ -110,7 +113,7 @@ public class CbclReader extends BaseBclReader implements CloseableIterator<CbclD
                     final ByteBuffer byteBuffer = ByteBuffer.allocate(INITIAL_HEADER_SIZE);
                     byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
 
-                    final File bclFile = cycleMap.get(i + 1);
+                    final File bclFile = cycleMap.get(outputCycles[i]);
                     if (bclFile == null) {
                         throw new PicardException("Expected cbcl file for surface " + entry.getKey() + " cycle " + (i + 1) + " but it was not found.");
                     }
@@ -286,12 +289,12 @@ public class CbclReader extends BaseBclReader implements CloseableIterator<CbclD
     }
 
     private void cacheFilterAndLocs(TileData currentTileData, List<AbstractIlluminaPositionFileReader.PositionInfo> locs) {
-        boolean[] filterValues = new boolean[currentTileData.numClustersInTile];
+        List<Boolean> filterValues = new ArrayList<>();
         FilterFileReader reader = new FilterFileReader(filterFileMap.get(currentTileData.tileNum));
         Iterator<AbstractIlluminaPositionFileReader.PositionInfo> positionInfoIterator = locs.iterator();
         int count = 0;
         while (reader.hasNext()) {
-            filterValues[count] = reader.next();
+            filterValues.add(reader.next());
             count++;
         }
 
@@ -361,7 +364,7 @@ public class CbclReader extends BaseBclReader implements CloseableIterator<CbclD
         // Write buffer contents to cached tile array
         // if nonPF reads are included we need to strip them out
         if (!currentCycleData.pfExcluded) {
-            boolean[] filterDatas = cachedFilter.get(tileData.tileNum);
+            List<Boolean> filterDatas = cachedFilter.get(tileData.tileNum);
             int sum = 0;
             for (boolean b : filterDatas) {
                 sum += b ? 1 : 0;
